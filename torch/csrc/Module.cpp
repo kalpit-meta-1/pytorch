@@ -112,6 +112,7 @@
 #include <ATen/ROCmFABackend.h>
 #include <ATen/cuda/CUDAConfig.h>
 #include <ATen/native/transformers/cuda/sdp_utils.h>
+#include <torch/csrc/inductor/static_cuda_launcher.h>
 #ifdef __HIP_PLATFORM_AMD__
 #include <ATen/native/cudnn/hip/BatchNorm.h>
 #else
@@ -1881,6 +1882,7 @@ PyObject* initModule() {
 #endif
 #ifdef USE_CUDA
   torch::cuda::initModule(module);
+  ASSERT_TRUE(StaticCudaLauncher_init(module));
 #endif
 #ifdef USE_MPS
   torch::mps::initModule(module);

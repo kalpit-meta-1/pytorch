@@ -43,6 +43,7 @@ namespace at::cuda {
   _(nvrtcGetProgramLogSize)                      \
   _(nvrtcGetProgramLog)                          \
   _(nvrtcGetLoweredName)                         \
+  _(cuModuleLoad)                            \
   _(cuModuleLoadData)                            \
   _(cuModuleLoadDataEx)                          \
   _(cuModuleGetFunction)                         \
@@ -60,6 +61,7 @@ namespace at::cuda {
   _(cuLinkComplete)                              \
   _(cuFuncSetAttribute)                          \
   _(cuFuncGetAttribute)                          \
+  _(cuPointerGetAttribute)                       \
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 12000
 #define AT_FORALL_NVRTC_EXTENDED(_)              \
@@ -110,6 +112,7 @@ namespace at::cuda {
   _(nvrtcDestroyProgram)                          \
   _(nvrtcGetPTXSize)                              \
   _(nvrtcGetPTX)                                  \
+  _(cuModuleLoad)                                 \
   _(cuModuleLoadData)                             \
   _(cuModuleGetFunction)                          \
   _(HIPOCCUPANCYMAXACTIVEBLOCKSPERMULTIPROCESSOR) \
@@ -121,7 +124,8 @@ namespace at::cuda {
   _(cuCtxGetCurrent)                              \
   _(nvrtcGetLoweredName)                          \
   _(cuModuleUnload)                               \
-  _(cuDevicePrimaryCtxGetState)
+  _(cuDevicePrimaryCtxGetState)                   \
+  _(cuPointerGetAttribute)                        \
 
 #endif
 

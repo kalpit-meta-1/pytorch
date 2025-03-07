@@ -2327,3 +2327,105 @@ def grid_combo_kernels(
         return grid_fn if not is_sequential else seq_grid_fn
     else:
         return grid_fn_default_meta if not is_sequential else seq_grid_fn_default_meta
+
+
+class StaticallyLaunchedCudaKernel:
+    """
+    Parses the metadata of a CompiledKernel from Triton into a structure that can
+    launch the cuda kernel directly. Only works for triton kernels compiled to cubin.
+
+    Doing this avoids C++ codegen and compilation during compile, since we can use a
+    statically compiled library to launch the kernel. To avoid mallocing for the arguments,
+    we have a launcher for different numbers of arguments up to a max. StaticCudaLauncher
+    only supports # of arguments up until 10 for now.
+    """
+
+    def __init__(self, kernel: CompiledKernel):
+        # TODO: Can only import this if we know torch was compiled with CUDA
+        # Maybe we make a class that just errors otherwise?
+        from torch._C import _StaticCudaLauncher
+
+        self.cubin = kernel.asm["cubin"]
+        # TODO: is this right?
+        self.name = kernel.src.fn.__name__
+        self.metadata = kernel.metadata
+        self.num_warps = kernel.metadata.num_warps
+        self.shared = kernel.metadata.shared
+        self.arg_tys = self.arg_ty_from_signature(kernel.src)
+        self.function: Optional[int] = (
+            None  # Loaded by load_kernel(on the parent process)
+        )
+        num_args = len(self.arg_tys)
+        if num_args > 10 or num_args == 0:
+            raise NotImplementedError(
+                "No static cuda launcher available for %d arguments", num_args
+            )
+        self.launcher = _StaticCudaLauncher._launch_kernel
+
+    def load_kernel(self):
+        from torch._C import _StaticCudaLauncher
+
+        assert hasattr(self, "cubin_path")
+        if self.function is not None:
+            return
+        (self.function, self.n_regs, self.n_spills) = _StaticCudaLauncher._load_kernel(
+            self.cubin_path, self.name, self.shared
+        )
+
+    def write_cubin_to_file(self, filepath):
+        with open(filepath, "wb") as f:
+            f.write(self.cubin)
+            del self.cubin
+        self.cubin_path = filepath
+
+    def extract_type(self, ty):
+        if ty[0] == "*":
+            return "O"
+        return {
+            "i1": "i",
+            "i8": "b",
+            "i16": "h",
+            "i32": "i",
+            "i64": "l",
+            "u1": "I",
+            "u8": "B",
+            "u16": "H",
+            "u32": "I",
+            "u64": "K",
+            "fp16": "f",
+            "bf16": "f",
+            "fp32": "f",
+            "f32": "f",
+            "fp64": "d",
+            # TODO handle nvTmaDesc/CUtensormap
+        }[ty]
+
+    def arg_ty_from_signature(self, src: ASTSource):
+        def index_key(i) -> int:
+            return src.fn.arg_names.index(i) if isinstance(i, str) else i
+
+        signature = {index_key(key): value for key, value in src.signature.items()}
+        # Sorts signature by index_key
+        tys = [signature[i] for i in range(len(signature))]
+        return "".join(self.extract_type(ty) for ty in tys)
+
+    def run(self, grid, stream, args):
+        assert self.function is not None
+        # TODO: can handle grid functions here or in the C++ code later
+        assert len(args) == len(self.arg_tys)
+        assert hasattr(self, "cubin_path")
+        assert callable(self.launcher)
+        grid_x = grid[0]
+        grid_y = grid[1] if len(grid) > 1 else 1
+        grid_z = grid[2] if len(grid) > 2 else 1
+        self.launcher(
+            self.function,
+            grid_x,
+            grid_y,
+            grid_z,
+            self.num_warps,
+            self.shared,
+            self.arg_tys,
+            args,
+            stream,
+        )
